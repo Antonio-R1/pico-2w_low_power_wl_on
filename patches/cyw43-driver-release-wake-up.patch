@@ -1,0 +1,181 @@
+cyw43-driver: release the gSPI WAKE_UP bit while the bus sleeps
+
+Adds the compile option CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP (default 0, so
+nothing changes for other projects). With it set, cyw43_ll_bus_sleep(true)
+clears SPI_BUS_CONTROL bit 7 (WAKE_UP) after KSO off, and
+cyw43_ll_bus_sleep(false) sets it again before KSO on. While WAKE_UP is set
+the CYW43439 keeps its crystal running and cannot reach deep sleep.
+
+Applies to cyw43-driver v1.1.1 (pico-sdk 2.3.1, lib/cyw43-driver):
+    git -C "$PICO_SDK_PATH/lib/cyw43-driver" apply <this file>
+
+License
+-------
+The added lines of this patch (marked "+") and the text above are under the
+MIT license in the LICENSE file of this repository.
+
+The unchanged context lines (marked " ") and the hunk headers are excerpts of
+cyw43-driver (https://github.com/georgerobotics/cyw43-driver, v1.1.1,
+src/cyw43_ll.c). They are redistributed under the cyw43-driver license terms,
+reproduced below unchanged from its LICENSE and LICENSE.RP files:
+
+======== cyw43-driver LICENSE ========
+Copyright (C) 2019-2022 George Robotics Pty Ltd
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Any redistribution, use, or modification in source or binary form is done
+   solely for personal benefit and not for any commercial purpose or for
+   monetary gain.
+
+THIS SOFTWARE IS PROVIDED BY THE LICENSOR AND COPYRIGHT OWNER "AS IS" AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE LICENSOR OR COPYRIGHT OWNER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+This software is also available for use with Raspberry Pi Ltd semiconductor
+devices under different terms (see ./LICENSE.RP).
+
+For commercial licensing options please email contact@georgerobotics.com.au
+
+======== cyw43-driver LICENSE.RP ========
+Copyright (C) 2019-2022 George Robotics Pty Ltd
+
+Raspberry Pi Ltd (Licensor) hereby grants to you a non-exclusive license to
+use this software solely with the Licensor's microcontroller chip (RP2040) or
+any other semiconductor device produced by the Licensor. No other use is
+permitted under the terms of this licence.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. The software can only be used and redistributed in conjunction with RP2040
+   or any other semiconductor device produced by the Licensor.
+2. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+3. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE LICENSOR AND COPYRIGHT OWNER "AS IS" AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE LICENSOR OR COPYRIGHT OWNER BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+This software is also available from the copyright owner under different
+terms (see ./LICENSE)
+======== end of cyw43-driver license terms ========
+
+diff --git a/src/cyw43_ll.c b/src/cyw43_ll.c
+index dc58df1..2495769 100644
+--- a/src/cyw43_ll.c
++++ b/src/cyw43_ll.c
+@@ -61,6 +61,18 @@ extern bool enable_spi_packet_dumping;
+ 
+ #define USE_KSO (1)
+ 
++// Release the gSPI WAKE_UP bit while the bus sleeps, so the chip can reach its
++// save/restore deep sleep. See cyw43_spi_set_wake_up().
++#ifndef CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++#define CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP (0)
++#endif
++#if CYW43_USE_SPI && CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++// SPI_BUS_CONTROL byte as read back after bus init. The sleep/wake writes use
++// it instead of reading the register first: a read taken while the chip is
++// asleep is not a reading, and writing it back corrupts the bus config.
++static uint8_t cyw43_spi_bus_ctl_init;
++#endif
++
+ #define CYW43_RAM_SIZE (512 * 1024)
+ 
+ // Include the file containing the WiFi+CLM firmware blob as a C array.
+@@ -1290,11 +1302,42 @@ static void cyw43_kso_set(cyw43_int_t *self, int value) {
+ }
+ #endif
+ 
++#if CYW43_USE_SPI && CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++// gSPI only. SPI_BUS_CONTROL bit 7 (WAKE_UP) is the host's standing request for
++// the crystal and PLLs (data sheet 4.2.2/4.2.3). KSO alone cannot let a
++// save/restore chip sleep while it is set. WHD clears it in
++// whd_enable_save_restore() ("SPI bus can be configured for sleep by default.
++// KSO bit solely controls the wlan chip sleep"). Here it is cleared on bus
++// sleep and set again on wake, which is the data sheet's gSPI wake procedure,
++// so the awake state is unchanged from the default driver.
++static void cyw43_spi_set_wake_up(cyw43_int_t *self, bool wake) {
++    uint8_t val = cyw43_spi_bus_ctl_init;
++    if (wake) {
++        val |= WAKE_UP;
++    } else {
++        val &= ~WAKE_UP;
++    }
++    cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_BUS_CONTROL, val);
++}
++#endif
++
+ static void cyw43_ll_bus_sleep_helper(cyw43_int_t *self, bool can_sleep) {
+     #if USE_KSO
+ 
++    #if CYW43_USE_SPI && CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++    if (!can_sleep) {
++        cyw43_spi_set_wake_up(self, true);
++    }
++    #endif
++
+     cyw43_kso_set(self, !can_sleep);
+ 
++    #if CYW43_USE_SPI && CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++    if (can_sleep) {
++        cyw43_spi_set_wake_up(self, false);
++    }
++    #endif
++
+     #else
+ 
+     if (can_sleep) {
+@@ -1467,6 +1510,9 @@ int cyw43_ll_bus_init(cyw43_ll_t *self_in, const uint8_t *mac) {
+ 
+         val = cyw43_read_reg_u32(self, BUS_FUNCTION, SPI_BUS_CONTROL);
+         CYW43_VDEBUG("read SPI_BUS_CONTROL 0x%x\n", val);
++        #if CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++        cyw43_spi_bus_ctl_init = (uint8_t)val;
++        #endif
+ 
+         if (cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_RESP_DELAY_F1, CYW43_BACKPLANE_READ_PAD_LEN_BYTES) != 0) {
+             break;
+@@ -2385,6 +2431,18 @@ bool cyw43_ll_has_work(cyw43_ll_t *self_in) {
+ 
+ bool cyw43_ll_bt_has_work(cyw43_ll_t *self_in) {
+     cyw43_int_t *self = CYW_INT_FROM_LL(self_in);
++    #if CYW43_USE_SPI && CYW43_SPI_RELEASE_WAKE_UP_ON_SLEEP
++    // With WAKE_UP released a sleeping chip no longer answers backplane reads,
++    // so wake it first, but only when it is asleep and has interrupted us:
++    // cyw43_ll_bus_sleep(false) restarts the sleep countdown, and doing that on
++    // every poll would keep the bus awake forever.
++    if (!self->bus_is_up) {
++        if (cyw43_cb_read_host_interrupt_pin(self->cb_data) != host_interrupt_pin_active) {
++            return false;
++        }
++        cyw43_ll_bus_sleep(self_in, false);
++    }
++    #endif
+     uint32_t int_status = cyw43_read_backplane(self, SDIO_INT_STATUS, 4);
+     if (int_status & I_HMB_FC_CHANGE) {
+         cyw43_write_backplane(self, SDIO_INT_STATUS, 4, int_status & I_HMB_FC_CHANGE);
