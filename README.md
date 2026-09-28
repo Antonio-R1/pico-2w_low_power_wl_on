@@ -130,6 +130,6 @@ context lines are excerpts of cyw43-driver (George Robotics) under the cyw43-dri
 the patch header.
 
 ## References
-- <a href="#1">[1]</a> <https://github.com/raspberrypi/pico-feedback/issues/294>, archived: <https://web.archive.org/web/20221219231644/https://www.infineon.com/dgdl/Infineon-CYW43439-DataSheet-v03_00-EN.pdf?fileId=8ac78c8c8386267f0183c320336c029f>
-- <a href="#2">[2]</a> <https://github.com/raspberrypi/pico-sdk/blob/079c6f39023649b154152db30f1d781e884879bc/src/rp2_common/pico_low_power/include/pico/low_power.h#L24-L69>
+- <a id="1">[1]</a> <https://github.com/raspberrypi/pico-feedback/issues/294>, archived: <https://web.archive.org/web/20221219231644/https://www.infineon.com/dgdl/Infineon-CYW43439-DataSheet-v03_00-EN.pdf?fileId=8ac78c8c8386267f0183c320336c029f>
+- <a id="2">[2]</a> <https://github.com/raspberrypi/pico-sdk/blob/079c6f39023649b154152db30f1d781e884879bc/src/rp2_common/pico_low_power/include/pico/low_power.h#L24-L69>
 
