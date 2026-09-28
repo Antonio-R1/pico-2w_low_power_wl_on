@@ -9,7 +9,7 @@ also keep the BLE advertising working.
 Using the onboard LED, BLE or WiFi requires enabling the `WL_ON` pin which is connected to the `WLAN_ON` and `BT_ON` registers of the CYW43439.
 The CYW43439 has, according to the documentation [[1]](#1), some low-power modes.
 Since the `WL_ON` pin is connected to both the `WLAN_ON` and `BT_ON` registers, we need to use the low-power modes of both parts.
-We tried to enable these low-power modes and were able to reduce the current used by the board with `WLAN_ON`, pstate and RAM turned off by about 50% according to the measurement described in "With a Voltmeter over a 10 Ohm resistor connected to VBUS" section.
+We tried to enable these low-power modes and were able to reduce the current used by the board with `WLAN_ON`, pstate and RAM turned off by about 50% according to the measurement described in ["With a Voltmeter over a 10 Ohm resistor connected to VBUS"](#with-a-voltmeter-over-a-10-ohm-resistor-connected-to-vbus) section.
 The code might still be improved, since we might not have released some resources of the wlan or bt core, or also of some other component.
 Furthermore, it still needs to be tested what is the minimum subset of settings and patches to get the low-power mode working.
 
@@ -68,7 +68,7 @@ the board reboots into the firmware.
 | `HOST` | How the RP2350 sleeps |
 |---|---|
 | `12MHz_LPO` | clk_sys from the 12 MHz crystal, PLLs off, core at 0.90 V, clock-gated WFI |
-| `pstate_ram_off` | pstate, SRAM off, The GPIO block loses power, so POWMAN holds `WL_ON` and `WL_CS` high. Every wake is a reboot, the LED is toggled as described in the ["Toggle the LED" section](toggle_the_led). |
+| `pstate_ram_off` | pstate, SRAM off, The GPIO block loses power, so POWMAN holds `WL_ON` and `WL_CS` high. Every wake is a reboot, the LED is toggled as described in the ["Toggle the LED" section](#toggle-the-led). |
 
 | `MODE` | CYW43439 | test |
 |---|---|---|
